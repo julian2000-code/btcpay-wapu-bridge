@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Payment Confirmed – BTC Hardware Solutions</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+
+  <!-- Nav -->
+  <nav>
+    <a class="nav-logo" href="/">
+      ⚡ <span>BTC</span> Hardware Solutions
+    </a>
+    <div class="nav-links">
+      <a href="/">Shop</a>
+    </div>
+  </nav>
+
+  <div class="confirmation-page">
+
+    <div class="confirmation-icon">✅</div>
+    <h1>Payment Confirmed!</h1>
+    <p>Your Lightning payment was received and settled in ARS via WapuPay.<br>Your order is being prepared for shipment.</p>
+
+    <!-- Payment summary -->
+    <div class="confirmation-card">
+      <div class="confirmation-row">
+        <span>Product</span>
+        <span>Assembled SeedSigner Kit</span>
+      </div>
+      <div class="confirmation-row">
+        <span>Paid (sats)</span>
+        <span id="paid-sats">—</span>
+      </div>
+      <div class="confirmation-row">
+        <span>Settled (ARS)</span>
+        <span class="ars" id="settled-ars">calculating...</span>
+      </div>
+      <div class="confirmation-row">
+        <span>Payment method</span>
+        <span>⚡ Lightning Network</span>
+      </div>
+      <div class="confirmation-row">
+        <span>Conversion</span>
+        <span>WapuPay → Merchant bank</span>
+      </div>
+      <div class="confirmation-row">
+        <span>Status</span>
+        <span style="color: var(--green);">✅ Settled</span>
+      </div>
+      <div class="confirmation-row">
+        <span>Shipping to</span>
+        <span>Av. Corrientes 1234, Buenos Aires</span>
+      </div>
+    </div>
+
+    <!-- BOLT11 receipt -->
+    <div class="confirmation-card">
+      <div style="font-size: 0.85rem; color: var(--muted); margin-bottom: 0.5rem;">Lightning Invoice (receipt)</div>
+      <div class="bolt11-box" id="bolt11-receipt" style="margin:0;">—</div>
+    </div>
+
+    <a href="/" class="btn btn-primary btn-lg" style="margin-top: 1.5rem;">
+      ← Back to Shop
+    </a>
+
+  </div>
+
+  <!-- Footer -->
+  <footer>
+    <p>⚡ Powered by <span>BTCPay Server</span> + <span>WapuPay</span> · Lightning payments settle instantly in ARS</p>
+  </footer>
+
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const amountSat = params.get('amount_sat') || '88000';
+    const bolt11 = params.get('bolt11') || 'lnbc...';
+
+    document.getElementById('paid-sats').textContent = parseInt(amountSat).toLocaleString() + ' sats';
+    document.getElementById('bolt11-receipt').textContent = bolt11;
+
+    // Fetch ARS amount from WapuPay quote
+    fetch('/create-payment', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ amount_sat: parseInt(amountSat), description: 'SeedSigner Kit' })
+    })
+    .then(r => r.json())
+    .then(data => {
+      const ars = data.ars_quote?.amount || data.ars_quote?.ars_amount || data.ars_quote?.payment_amount;
+      if (ars) {
+        document.getElementById('settled-ars').textContent =
+          '$ ' + parseFloat(ars).toLocaleString('es-AR', { minimumFractionDigits: 2 }) + ' ARS';
+      } else {
+        document.getElementById('settled-ars').textContent = '~ $ 87,990.00 ARS (demo)';
+      }
+    })
+    .catch(() => {
+      document.getElementById('settled-ars').textContent = '~ $ 87,990.00 ARS (demo)';
+    });
+  </script>
+
+</body>
+</html>

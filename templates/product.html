@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Assembled SeedSigner / Full Build Kit – BTC Hardware Solutions</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+
+  <!-- Nav -->
+  <nav>
+    <a class="nav-logo" href="/">
+      ⚡ <span>BTC</span> Hardware Solutions
+    </a>
+    <div class="nav-links">
+      <a href="/">Shop</a>
+      <a href="#">About</a>
+      <a href="#">Support</a>
+      <span class="badge">Lightning Ready</span>
+    </div>
+  </nav>
+
+  <!-- Breadcrumb -->
+  <div class="breadcrumb">
+    <a href="/">Home</a> › Assembled SeedSigner / Full Build Kit
+  </div>
+
+  <!-- Product page -->
+  <div class="product-page">
+
+    <!-- Images -->
+    <div>
+      <div class="product-image">
+        <img src="https://seedsigner.com/wp-content/uploads/2022/09/seedsigner-1.jpg"
+             onerror="this.style.background='#2a2a2a';"
+             alt="SeedSigner Kit" id="main-img" />
+      </div>
+      <div class="product-thumbnails">
+        <img src="https://seedsigner.com/wp-content/uploads/2022/09/seedsigner-1.jpg"
+             onerror="this.style.background='#2a2a2a';" alt="View 1"
+             onclick="document.getElementById('main-img').src=this.src" />
+        <img src="https://seedsigner.com/wp-content/uploads/2022/09/seedsigner-1.jpg"
+             onerror="this.style.background='#2a2a2a';" alt="View 2"
+             onclick="document.getElementById('main-img').src=this.src" />
+        <img src="https://seedsigner.com/wp-content/uploads/2022/09/seedsigner-1.jpg"
+             onerror="this.style.background='#2a2a2a';" alt="View 3"
+             onclick="document.getElementById('main-img').src=this.src" />
+      </div>
+    </div>
+
+    <!-- Info -->
+    <div class="product-info">
+      <h1>Assembled SeedSigner / Full Build Kit</h1>
+
+      <div class="product-price">$79.99 USD</div>
+      <div class="product-price-sats">≈ 80,000 sats · Pay with Lightning ⚡</div>
+
+      <p class="product-description">
+        The SeedSigner is an open-source, air-gapped Bitcoin signing device built on a
+        Raspberry Pi Zero. It generates and uses seeds only in memory — completely stateless,
+        never storing your private key. Perfect for self-custody without compromise.
+        <br><br>
+        This kit includes everything you need: Raspberry Pi Zero 2W, Waveshare 1.3" LCD HAT,
+        OV5647 camera module, and a 3D-printed orange case. Assembled and tested.
+      </p>
+
+      <!-- Options -->
+      <div class="product-options">
+        <label>Version</label>
+        <div class="option-buttons">
+          <button class="option-btn active" onclick="selectOption(this)">Assembled</button>
+          <button class="option-btn" onclick="selectOption(this)">Full Build Kit (DIY)</button>
+        </div>
+      </div>
+
+      <div class="product-options">
+        <label>Case Color</label>
+        <div class="option-buttons">
+          <button class="option-btn active" onclick="selectOption(this)">Orange</button>
+          <button class="option-btn" onclick="selectOption(this)">Black</button>
+          <button class="option-btn" onclick="selectOption(this)">Clear</button>
+        </div>
+      </div>
+
+      <!-- CTA -->
+      <a href="/checkout" class="btn btn-primary btn-lg" style="margin-bottom: 0.75rem;">
+        ⚡ Buy Now with Lightning
+      </a>
+      <button class="btn btn-outline btn-lg">Add to Cart</button>
+
+      <!-- Meta -->
+      <div class="product-meta">
+        <p>Availability: <span>In Stock</span></p>
+        <p>Ships from: Buenos Aires, Argentina</p>
+        <p>Payment settled in ARS via WapuPay</p>
+        <p>Open-source hardware · <a href="https://seedsigner.com" target="_blank">seedsigner.com</a></p>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Footer -->
+  <footer>
+    <p>⚡ Powered by <span>BTCPay Server</span> + <span>WapuPay</span> · Lightning payments settle instantly in ARS</p>
+  </footer>
+
+  <script>
+    function selectOption(btn) {
+      btn.closest('.option-buttons').querySelectorAll('.option-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    }
+  </script>
+
+</body>
+</html>

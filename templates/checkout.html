@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Checkout – BTC Hardware Solutions</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+
+  <!-- Nav -->
+  <nav>
+    <a class="nav-logo" href="/">
+      ⚡ <span>BTC</span> Hardware Solutions
+    </a>
+    <div class="nav-links">
+      <a href="/">Shop</a>
+    </div>
+  </nav>
+
+  <!-- Breadcrumb -->
+  <div class="breadcrumb">
+    <a href="/">Home</a> › <a href="/product">SeedSigner Kit</a> › Checkout
+  </div>
+
+  <div class="checkout-page">
+    <h1>Checkout</h1>
+
+    <div class="checkout-grid">
+
+      <!-- Left: shipping form -->
+      <div>
+
+        <div class="checkout-section">
+          <h2>Shipping Information</h2>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>First Name</label>
+              <input type="text" value="Satoshi" readonly />
+            </div>
+            <div class="form-group">
+              <label>Last Name</label>
+              <input type="text" value="Nakamoto" readonly />
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Street Address</label>
+            <input type="text" value="Av. Corrientes 1234, Piso 3" readonly />
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>City</label>
+              <input type="text" value="Buenos Aires" readonly />
+            </div>
+            <div class="form-group">
+              <label>Postal Code</label>
+              <input type="text" value="C1043AAZ" readonly />
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Country</label>
+            <select>
+              <option selected>Argentina 🇦🇷</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="checkout-section">
+          <h2>Shipping Method</h2>
+          <div class="form-group">
+            <label>
+              <input type="radio" checked /> Standard Shipping (5–10 business days) — $8.00
+            </label>
+          </div>
+          <div class="form-group">
+            <label>
+              <input type="radio" /> Express Shipping (2–3 business days) — $18.00
+            </label>
+          </div>
+        </div>
+
+        <!-- Pay button -->
+        <button class="btn btn-primary btn-lg" onclick="openLightningModal()">
+          ⚡ Pay with Lightning
+        </button>
+
+      </div>
+
+      <!-- Right: order summary -->
+      <div class="order-summary">
+        <h2>Order Summary</h2>
+
+        <div class="order-item">
+          <img src="https://seedsigner.com/wp-content/uploads/2022/09/seedsigner-1.jpg"
+               onerror="this.style.background='#2a2a2a';" alt="SeedSigner" />
+          <div class="order-item-info">
+            <h4>Assembled SeedSigner Kit</h4>
+            <p>Orange · Assembled</p>
+          </div>
+          <div class="order-item-price">$79.99</div>
+        </div>
+
+        <div class="order-totals">
+          <div class="order-total-row">
+            <span>Subtotal</span>
+            <span>$79.99</span>
+          </div>
+          <div class="order-total-row">
+            <span>Shipping</span>
+            <span>$8.00</span>
+          </div>
+          <div class="order-total-row total">
+            <span>Total</span>
+            <span>$87.99 USD</span>
+          </div>
+          <div class="order-total-row" style="margin-top: 0.25rem;">
+            <span style="color: var(--orange);">≈ sats</span>
+            <span id="sat-amount" style="color: var(--orange);">calculating...</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Lightning payment modal -->
+  <div class="modal-overlay" id="lightning-modal">
+    <div class="modal">
+      <div class="lightning-icon">⚡</div>
+      <h2>Pay with Lightning</h2>
+      <p>Scan the QR code with your Lightning wallet.<br>Payment goes directly to WapuPay and settles in ARS.</p>
+
+      <div class="qr-placeholder" id="qr-box" style="display:flex;align-items:center;justify-content:center;">
+        Generating invoice...
+      </div>
+
+      <div class="bolt11-box" id="bolt11-display">
+        Requesting invoice from WapuPay...
+      </div>
+
+      <div class="waiting" id="waiting-status">
+        <div class="dot"></div>
+        <div class="dot"></div>
+        <div class="dot"></div>
+        <span>Waiting for payment...</span>
+      </div>
+
+      <br>
+      <button class="btn btn-outline" onclick="simulatePayment()" style="width:100%; margin-top: 1rem;">
+        ✅ Simulate Payment (Demo)
+      </button>
+      <button class="btn" onclick="closeModal()" style="width:100%; margin-top: 0.5rem; background: #222; color: var(--muted);">
+        Cancel
+      </button>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer>
+    <p>⚡ Powered by <span>BTCPay Server</span> + <span>WapuPay</span> · Lightning payments settle instantly in ARS</p>
+  </footer>
+
+  <script>
+    const AMOUNT_SAT = 88000; // ~$87.99 USD at demo rate
+    let bolt11 = '';
+
+    document.getElementById('sat-amount').textContent = AMOUNT_SAT.toLocaleString() + ' sats';
+
+    async function openLightningModal() {
+      document.getElementById('lightning-modal').classList.add('active');
+
+      try {
+        const res = await fetch('/create-payment', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ amount_sat: AMOUNT_SAT, description: 'SeedSigner Kit' })
+        });
+        const data = await res.json();
+        bolt11 = data.bolt11 || 'Invoice unavailable';
+
+        document.getElementById('bolt11-display').textContent = bolt11;
+
+        // Generate real QR code from BOLT11
+        const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(bolt11)}`;
+        document.getElementById('qr-box').innerHTML =
+          `<img src="${qrUrl}" alt="Lightning QR Code" style="width:200px;height:200px;border-radius:8px;" />`;
+
+      } catch (e) {
+        document.getElementById('bolt11-display').textContent = 'Error: ' + e.message;
+      }
+    }
+
+    function closeModal() {
+      document.getElementById('lightning-modal').classList.remove('active');
+    }
+
+    function simulatePayment() {
+      // Redirect to confirmation page with demo data
+      window.location.href = '/confirmation?amount_sat=' + AMOUNT_SAT + '&bolt11=' + encodeURIComponent(bolt11);
+    }
+  </script>
+
+</body>
+</html>

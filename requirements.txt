@@ -3,3 +3,5 @@ uvicorn[standard]
 httpx
 python-dotenv
 bech32
+jinja2
+python-multipart

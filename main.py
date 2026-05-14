@@ -2,9 +2,9 @@
 BTCPay → WapuPay bridge.
 
 Flow:
-1. Merchant creates a payment request via POST /create-payment
-2. App asks WapuPay for a Lightning invoice (BOLT11)
-3. Customer scans the BOLT11 QR code and pays
+1. Customer visits the webstore and picks a product
+2. At checkout, app asks WapuPay for a Lightning invoice (BOLT11)
+3. Customer scans the BOLT11 QR code and pays with their Lightning wallet
 4. Sats land directly in WapuPay — no second transaction needed
 5. WapuPay converts sats → ARS and sends to merchant's bank alias
 6. BTCPay webhook fires for order confirmation/logging
@@ -16,6 +16,9 @@ import os
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from btcpay import get_invoice, validate_webhook_signature
@@ -37,6 +40,10 @@ app = FastAPI(
     version="2.0.0"
 )
 
+# Serve static files (CSS) and HTML templates
+app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory="templates")
+
 
 # --- Request model ---
 
@@ -45,20 +52,39 @@ class PaymentRequest(BaseModel):
     description: str = "Payment"
 
 
-# --- Endpoints ---
+# --- Store pages ---
 
-@app.get("/")
-async def health_check():
-    """Quick check that the server is running."""
-    return {"status": "ok", "message": "BTCPay-Wapu bridge is running"}
+@app.get("/", response_class=HTMLResponse)
+async def homepage(request: Request):
+    """Webstore homepage."""
+    return templates.TemplateResponse(request, "index.html")
 
+
+@app.get("/product", response_class=HTMLResponse)
+async def product_page(request: Request):
+    """Product detail page."""
+    return templates.TemplateResponse(request, "product.html")
+
+
+@app.get("/checkout", response_class=HTMLResponse)
+async def checkout_page(request: Request):
+    """Checkout page with Lightning payment."""
+    return templates.TemplateResponse(request, "checkout.html")
+
+
+@app.get("/confirmation", response_class=HTMLResponse)
+async def confirmation_page(request: Request):
+    """Payment confirmation + ARS conversion summary."""
+    return templates.TemplateResponse(request, "confirmation.html")
+
+
+# --- API endpoints ---
 
 @app.get("/lightning-address")
 async def lightning_address():
     """
     Returns the WapuPay Lightning Address for this merchant.
     Format: username@wapu.app
-    Customers can pay this address directly from any Lightning wallet.
     """
     try:
         address = await get_lightning_address()
@@ -95,7 +121,7 @@ async def create_payment(payment: PaymentRequest):
         raise HTTPException(status_code=502, detail=f"WapuPay error: {str(e)}")
 
     return {
-        "bolt11": invoice.get("payment_request") or invoice.get("bolt11") or invoice.get("invoice"),
+        "bolt11": invoice.get("lnurl_pr_invoice") or invoice.get("payment_request") or invoice.get("bolt11"),
         "amount_sat": payment.amount_sat,
         "ars_quote": quote,
         "wapu_response": invoice
@@ -122,8 +148,7 @@ async def btcpay_webhook(
 ):
     """
     Receives webhook events from BTCPay Server.
-    Used for order confirmation and logging — conversion
-    happens automatically on WapuPay's side when sats arrive.
+    Used for order confirmation and logging.
     """
     payload_bytes = await request.body()
 
