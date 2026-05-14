@@ -24,3 +24,9 @@ build/
 # Logs
 *.log
 logs/
+
+# Private helpers
+nostr.py
+
+# Claude Code
+.claude/
