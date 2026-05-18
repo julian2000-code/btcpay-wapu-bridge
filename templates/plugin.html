@@ -1,0 +1,748 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WapuPay ARS Settlement – BTCPay Plugin</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <style>
+    /* ── BTCPay-like layout ───────────────────────────────── */
+    :root {
+      --btc-green:  #51b13e;
+      --btc-bg:     #f8f9fa;
+      --btc-card:   #ffffff;
+      --btc-border: #dee2e6;
+      --btc-text:   #1a1a1a;
+      --btc-muted:  #6c757d;
+      --btc-sidebar:#1a1a2e;
+    }
+
+    body {
+      background: var(--btc-bg);
+      color: var(--btc-text);
+      font-family: 'Inter', 'Segoe UI', sans-serif;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 240px 1fr;
+      min-height: 100vh;
+    }
+
+    /* ── Sidebar ──────────────────────────────────────────── */
+    .sidebar {
+      background: var(--btc-sidebar);
+      color: #ccc;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .sidebar-logo {
+      padding: 1.2rem 1.5rem;
+      border-bottom: 1px solid #2a2a4a;
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      font-weight: 700;
+      font-size: 1rem;
+      color: #fff;
+    }
+
+    .sidebar-logo span { color: #f7931a; }
+
+    .sidebar-store {
+      padding: 0.8rem 1.5rem;
+      border-bottom: 1px solid #2a2a4a;
+      font-size: 0.8rem;
+      color: #888;
+    }
+
+    .sidebar-store strong { color: #ddd; display: block; margin-top: 0.2rem; font-size: 0.9rem; }
+
+    .sidebar-nav { flex: 1; padding: 0.5rem 0; }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 0.7rem;
+      padding: 0.6rem 1.5rem;
+      font-size: 0.88rem;
+      color: #999;
+      cursor: pointer;
+      transition: all 0.15s;
+      border-left: 3px solid transparent;
+    }
+
+    .nav-item:hover { color: #fff; background: rgba(255,255,255,0.05); }
+    .nav-item.active { color: #fff; background: rgba(247,147,26,0.1); border-left-color: #f7931a; }
+    .nav-item .icon { width: 18px; text-align: center; font-size: 0.9rem; }
+
+    .plugin-tag {
+      margin-left: auto;
+      font-size: 0.6rem;
+      background: #f7931a;
+      color: #000;
+      padding: 0.1rem 0.4rem;
+      border-radius: 999px;
+      font-weight: 700;
+    }
+
+    .sidebar-footer {
+      padding: 1rem 1.5rem;
+      border-top: 1px solid #2a2a4a;
+      font-size: 0.75rem;
+      color: #555;
+    }
+
+    /* ── Main content ─────────────────────────────────────── */
+    .main { background: var(--btc-bg); overflow-y: auto; }
+
+    .topbar {
+      background: #fff;
+      border-bottom: 1px solid var(--btc-border);
+      padding: 0.9rem 2rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .topbar h1 { font-size: 1.3rem; font-weight: 700; color: var(--btc-text); }
+    .topbar p { font-size: 0.82rem; color: var(--btc-muted); margin-top: 0.1rem; }
+
+    .topbar-actions { display: flex; gap: 0.75rem; align-items: center; }
+
+    .btn-btc {
+      padding: 0.45rem 1rem;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      transition: all 0.15s;
+    }
+
+    .btn-btc-primary { background: var(--btc-green); color: #fff; }
+    .btn-btc-primary:hover { background: #429933; }
+    .btn-btc-outline { background: #fff; color: var(--btc-text); border: 1px solid var(--btc-border); }
+    .btn-btc-outline:hover { background: #f8f9fa; }
+
+    .content { padding: 1.5rem 2rem; }
+
+    /* ── Alert banner ─────────────────────────────────────── */
+    .alert-info {
+      background: #e8f4fd;
+      border: 1px solid #b8daff;
+      border-radius: 6px;
+      padding: 0.75rem 1rem;
+      font-size: 0.85rem;
+      color: #004085;
+      margin-bottom: 1.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    /* ── Stats row ────────────────────────────────────────── */
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .stat-card {
+      background: #fff;
+      border: 1px solid var(--btc-border);
+      border-radius: 8px;
+      padding: 1.2rem;
+    }
+
+    .stat-card h3 {
+      font-size: 0.75rem;
+      color: var(--btc-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.5rem;
+      font-weight: 600;
+    }
+
+    .stat-card .value { font-size: 1.4rem; font-weight: 800; color: var(--btc-text); }
+    .stat-card .value.green { color: var(--btc-green); }
+    .stat-card .value.orange { color: #f7931a; }
+    .stat-card .value.blue { color: #0d6efd; }
+    .stat-card .sub { font-size: 0.78rem; color: var(--btc-muted); margin-top: 0.25rem; }
+
+    /* ── Card ─────────────────────────────────────────────── */
+    .card {
+      background: #fff;
+      border: 1px solid var(--btc-border);
+      border-radius: 8px;
+      margin-bottom: 1.5rem;
+      overflow: hidden;
+    }
+
+    .card-header {
+      padding: 0.9rem 1.5rem;
+      border-bottom: 1px solid var(--btc-border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: #fff;
+    }
+
+    .card-header h2 {
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: var(--btc-text);
+      margin: 0;
+    }
+
+    .card-body { padding: 1.5rem; }
+
+    /* ── Threshold bar ────────────────────────────────────── */
+    .threshold-wrap {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .threshold-bar {
+      flex: 1;
+      height: 10px;
+      background: #e9ecef;
+      border-radius: 999px;
+      overflow: hidden;
+    }
+
+    .threshold-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--btc-green), #f7931a);
+      border-radius: 999px;
+      transition: width 0.5s ease;
+    }
+
+    .threshold-labels {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.78rem;
+      color: var(--btc-muted);
+      margin-bottom: 1.2rem;
+    }
+
+    .threshold-setting {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      background: #f8f9fa;
+      border: 1px solid var(--btc-border);
+      border-radius: 6px;
+      padding: 0.8rem 1rem;
+    }
+
+    .threshold-setting label {
+      font-size: 0.85rem;
+      color: var(--btc-text);
+      flex: 1;
+    }
+
+    .threshold-setting input {
+      background: #fff;
+      border: 1px solid var(--btc-border);
+      border-radius: 6px;
+      color: var(--btc-text);
+      padding: 0.4rem 0.8rem;
+      font-size: 0.9rem;
+      width: 160px;
+      text-align: right;
+    }
+
+    .threshold-setting input:focus {
+      outline: none;
+      border-color: var(--btc-green);
+      box-shadow: 0 0 0 2px rgba(81,177,62,0.2);
+    }
+
+    /* ── Tabs ─────────────────────────────────────────────── */
+    .tabs {
+      display: flex;
+      border-bottom: 1px solid var(--btc-border);
+      background: #fff;
+      padding: 0 1.5rem;
+    }
+
+    .tab {
+      padding: 0.7rem 1rem;
+      font-size: 0.88rem;
+      font-weight: 500;
+      color: var(--btc-muted);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+      transition: all 0.15s;
+    }
+
+    .tab:hover { color: var(--btc-text); }
+    .tab.active { color: var(--btc-green); border-bottom-color: var(--btc-green); font-weight: 600; }
+
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    /* ── Table ────────────────────────────────────────────── */
+    .btc-table { width: 100%; border-collapse: collapse; }
+
+    .btc-table th {
+      padding: 0.7rem 1.5rem;
+      text-align: left;
+      font-size: 0.78rem;
+      color: var(--btc-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      border-bottom: 1px solid var(--btc-border);
+      background: #f8f9fa;
+      font-weight: 600;
+    }
+
+    .btc-table td {
+      padding: 0.85rem 1.5rem;
+      font-size: 0.88rem;
+      border-bottom: 1px solid var(--btc-border);
+      color: var(--btc-text);
+    }
+
+    .btc-table tr:last-child td { border-bottom: none; }
+    .btc-table tr:hover td { background: #f8f9fa; }
+
+    .btc-table .mono {
+      font-family: monospace;
+      font-size: 0.8rem;
+      color: var(--btc-muted);
+    }
+
+    /* ── Badges ───────────────────────────────────────────── */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      padding: 0.2rem 0.6rem;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+
+    .badge-green { background: #d4edda; color: #155724; }
+    .badge-orange { background: #fff3cd; color: #856404; }
+    .badge-blue { background: #cce5ff; color: #004085; }
+    .badge-grey { background: #e2e3e5; color: #383d41; }
+
+    /* ── Empty state ──────────────────────────────────────── */
+    .empty-state {
+      text-align: center;
+      padding: 3rem 1.5rem;
+      color: var(--btc-muted);
+    }
+
+    .empty-state .icon { font-size: 2.5rem; margin-bottom: 0.75rem; }
+    .empty-state h3 { font-size: 1rem; font-weight: 600; color: var(--btc-text); margin-bottom: 0.3rem; }
+    .empty-state p { font-size: 0.85rem; }
+
+    /* ── Loading ──────────────────────────────────────────── */
+    .loading { text-align: center; padding: 2rem; color: var(--btc-muted); font-size: 0.9rem; }
+
+    /* ── Lightning balance pill ───────────────────────────── */
+    .balance-pill {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      background: #fff3cd;
+      border: 1px solid #ffc107;
+      border-radius: 999px;
+      padding: 0.3rem 0.8rem;
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: #856404;
+    }
+  </style>
+</head>
+<body>
+
+<div class="layout">
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="sidebar-logo">
+      ₿ <span>BTC</span>Pay Server
+    </div>
+    <div class="sidebar-store">
+      Current Store
+      <strong id="store-name">Loading...</strong>
+    </div>
+    <nav class="sidebar-nav">
+      <div class="nav-item active">
+        <span class="icon">🇦🇷</span> WapuPay ARS
+        <span class="plugin-tag">PLUGIN</span>
+      </div>
+    </nav>
+    <div class="sidebar-footer">
+      BTCPay Server 2.3.9 · Regtest
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div class="main">
+
+    <!-- Topbar -->
+    <div class="topbar">
+      <div>
+        <h1>🇦🇷 WapuPay ARS Settlement</h1>
+        <p>Automatic Lightning → ARS conversion for Argentine merchants</p>
+      </div>
+      <div class="topbar-actions">
+        <div class="balance-pill" id="lightning-balance">
+          ⚡ Loading balance...
+        </div>
+        <button class="btn-btc btn-btc-outline" onclick="loadDashboard()">↻ Refresh</button>
+        <a href="/" class="btn-btc btn-btc-outline">← Store</a>
+      </div>
+    </div>
+
+    <div class="content">
+
+      <!-- Info banner -->
+      <div class="alert-info">
+        ℹ️ This is a preview of the <strong>WapuPay ARS Settlement BTCPay Plugin</strong>.
+        Data is pulled live from your BTCPay Server and WapuPay staging account.
+      </div>
+
+      <!-- Stats -->
+      <div class="stats-row">
+        <div class="stat-card">
+          <h3>Converted This Month</h3>
+          <div class="value green" id="stat-converted">—</div>
+          <div class="sub">sats → ARS</div>
+        </div>
+        <div class="stat-card">
+          <h3>Kept in Lightning</h3>
+          <div class="value orange" id="stat-kept">—</div>
+          <div class="sub">sats saved</div>
+        </div>
+        <div class="stat-card">
+          <h3>BTCPay Invoices</h3>
+          <div class="value blue" id="stat-invoices">—</div>
+          <div class="sub">total invoices</div>
+        </div>
+        <div class="stat-card">
+          <h3>Threshold Remaining</h3>
+          <div class="value" id="stat-remaining">—</div>
+          <div class="sub">sats left to convert</div>
+        </div>
+      </div>
+
+      <!-- Threshold settings -->
+      <div class="card">
+        <div class="card-header">
+          <h2>⚙️ Monthly Conversion Threshold</h2>
+          <span style="font-size:0.8rem; color:var(--btc-muted);" id="threshold-month">—</span>
+        </div>
+        <div class="card-body">
+          <div class="threshold-wrap">
+            <div class="threshold-bar">
+              <div class="threshold-fill" id="threshold-fill" style="width:0%"></div>
+            </div>
+            <span style="font-size:0.82rem; color:var(--btc-muted); min-width:36px;" id="threshold-pct">0%</span>
+          </div>
+          <div class="threshold-labels">
+            <span>0 sats</span>
+            <span id="threshold-mid">—</span>
+            <span id="threshold-max">—</span>
+          </div>
+          <div class="threshold-setting">
+            <label>
+              Convert the first <strong>X sats</strong> each month to ARS automatically.
+              Everything above stays in your BTCPay Lightning wallet.
+            </label>
+            <input type="number" id="threshold-input" value="500000" min="1000" step="1000" />
+            <button class="btn-btc btn-btc-primary" onclick="saveThreshold()">Save</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tabs: ARS Payouts / BTCPay Invoices / WapuPay Transactions -->
+      <div class="card">
+        <div class="tabs">
+          <div class="tab active" onclick="switchTab('ars')">🇦🇷 ARS Payouts</div>
+          <div class="tab" onclick="switchTab('invoices')">⚡ BTCPay Invoices</div>
+          <div class="tab" onclick="switchTab('wapu')">💱 WapuPay Transactions</div>
+        </div>
+
+        <!-- ARS Payouts tab -->
+        <div class="tab-content active" id="tab-ars">
+          <div id="ars-content" class="loading">Loading ARS payouts...</div>
+        </div>
+
+        <!-- BTCPay Invoices tab -->
+        <div class="tab-content" id="tab-invoices">
+          <div id="invoices-content" class="loading">Loading BTCPay invoices...</div>
+        </div>
+
+        <!-- WapuPay Transactions tab -->
+        <div class="tab-content" id="tab-wapu">
+          <div id="wapu-content" class="loading">Loading WapuPay transactions...</div>
+        </div>
+
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+  let dashboardData = null;
+
+  function switchTab(name) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+    event.target.classList.add('active');
+    document.getElementById('tab-' + name).classList.add('active');
+  }
+
+  async function loadDashboard() {
+    try {
+      const res = await fetch('/api/dashboard');
+      dashboardData = await res.json();
+      renderDashboard(dashboardData);
+    } catch (e) {
+      console.error('Dashboard error:', e);
+    }
+  }
+
+  function renderDashboard(data) {
+    // Store name
+    document.getElementById('store-name').textContent = data.store_name || 'My Store';
+
+    // Lightning balance
+    const bal = data.lightning_balance;
+    if (bal && bal.local !== undefined) {
+      document.getElementById('lightning-balance').textContent =
+        `⚡ ${Number(bal.local).toLocaleString()} sats`;
+    } else {
+      document.getElementById('lightning-balance').textContent = '⚡ Lightning Active';
+    }
+
+    // Threshold stats
+    const t = data.threshold;
+    document.getElementById('stat-converted').textContent = t.converted_sat.toLocaleString() + ' sats';
+    document.getElementById('stat-kept').textContent = t.above_threshold_sat.toLocaleString() + ' sats';
+    document.getElementById('stat-invoices').textContent = (data.btcpay_invoices || []).length;
+    document.getElementById('stat-remaining').textContent = t.remaining_to_convert_sat.toLocaleString() + ' sats';
+    document.getElementById('threshold-input').value = t.threshold_sat;
+    document.getElementById('threshold-month').textContent = 'Month: ' + t.month;
+    document.getElementById('threshold-max').textContent = t.threshold_sat.toLocaleString() + ' sats';
+    document.getElementById('threshold-mid').textContent = (t.threshold_sat / 2).toLocaleString() + ' sats';
+
+    const pct = Math.min(100, Math.round((t.converted_sat / t.threshold_sat) * 100));
+    document.getElementById('threshold-fill').style.width = pct + '%';
+    document.getElementById('threshold-pct').textContent = pct + '%';
+
+    // ARS Payouts tab
+    renderARSPayouts(data.ars_payouts, t.payments);
+
+    // BTCPay Invoices tab
+    renderInvoices(data.btcpay_invoices);
+
+    // WapuPay Transactions tab
+    renderWapuTxs(data.wapu_transactions);
+  }
+
+  function renderARSPayouts(arsPayouts, thresholdPayments) {
+    const all = [...(arsPayouts || []), ...(thresholdPayments || [])];
+
+    if (all.length === 0) {
+      document.getElementById('ars-content').innerHTML = `
+        <div class="empty-state">
+          <div class="icon">🇦🇷</div>
+          <h3>No ARS payouts yet</h3>
+          <p>Once a Lightning payment is received and converted, it will appear here.</p>
+        </div>`;
+      return;
+    }
+
+    let rows = all.map(p => {
+      let badge, ars;
+      const wapuStatus = (p.wapu_status || '').toUpperCase();
+      const isCompleted = ['COMPLETED', 'DONE', 'PAID', 'SUCCESS'].includes(wapuStatus) || (p.ars_amount > 0);
+
+      if (p.type === 'kept_in_lightning') {
+        badge = '<span class="badge badge-orange">⚡ Kept in Lightning</span>';
+        ars = '—';
+      } else if (isCompleted) {
+        badge = '<span class="badge badge-green">✅ Converted to ARS</span>';
+        ars = p.ars_amount > 0
+          ? `$ ${Number(p.ars_amount).toLocaleString('es-AR', {minimumFractionDigits: 2})} ARS`
+          : '<span style="color:#888;">Amount pending</span>';
+      } else {
+        badge = '<span class="badge badge-blue">⏳ Pending ARS conversion</span>';
+        ars = '<span style="color:#856404;">Pending...</span>';
+      }
+
+      return `<tr>
+        <td>${p.date || '—'}</td>
+        <td class="mono">${(p.invoice_id || p.transaction_id || '—').substring(0, 20)}...</td>
+        <td><strong>${Number(p.amount_sat).toLocaleString()}</strong> sats</td>
+        <td style="color:#155724; font-weight:600;">${ars}</td>
+        <td>${badge}</td>
+      </tr>`;
+    }).join('');
+
+    document.getElementById('ars-content').innerHTML = `
+      <table class="btc-table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Invoice ID</th>
+            <th>Sats</th>
+            <th>ARS Received</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+  }
+
+  function renderInvoices(invoices) {
+    if (!invoices || invoices.length === 0) {
+      document.getElementById('invoices-content').innerHTML = `
+        <div class="empty-state">
+          <div class="icon">⚡</div>
+          <h3>No invoices yet</h3>
+          <p>Create a payment in the webstore to generate your first invoice.</p>
+        </div>`;
+      return;
+    }
+
+    let rows = invoices.map(inv => {
+      const statusMap = {
+        'Settled': '<span class="badge badge-green">✅ Settled</span>',
+        'Processing': '<span class="badge badge-blue">⏳ Processing</span>',
+        'Expired': '<span class="badge badge-grey">⏰ Expired</span>',
+        'Invalid': '<span class="badge badge-grey">❌ Invalid</span>',
+        'New': '<span class="badge badge-blue">🆕 New</span>',
+      };
+      const badge = statusMap[inv.status] || `<span class="badge badge-grey">${inv.status}</span>`;
+
+      return `<tr>
+        <td class="mono">${inv.id?.substring(0, 16)}...</td>
+        <td>${inv.currency || 'SATS'}</td>
+        <td><strong>${Number(inv.amount || 0).toLocaleString()}</strong></td>
+        <td>${badge}</td>
+        <td class="mono" style="font-size:0.75rem;">${inv.createdTime || '—'}</td>
+      </tr>`;
+    }).join('');
+
+    document.getElementById('invoices-content').innerHTML = `
+      <table class="btc-table">
+        <thead>
+          <tr>
+            <th>Invoice ID</th>
+            <th>Currency</th>
+            <th>Amount</th>
+            <th>Status</th>
+            <th>Created</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+  }
+
+  function renderWapuTxs(txs) {
+    const list = Array.isArray(txs) ? txs : (txs?.items || txs?.transactions || []);
+
+    if (!list || list.length === 0) {
+      document.getElementById('wapu-content').innerHTML = `
+        <div class="empty-state">
+          <div class="icon">💱</div>
+          <h3>No WapuPay transactions yet</h3>
+          <p>Transactions from your WapuPay staging account will appear here.</p>
+        </div>`;
+      return;
+    }
+
+    let rows = list.map(tx => {
+      const statusMap = {
+        'Pending': '<span class="badge badge-blue">⏳ Pending</span>',
+        'Completed': '<span class="badge badge-green">✅ Completed</span>',
+        'Failed': '<span class="badge badge-grey">❌ Failed</span>',
+        'CANCELED': '<span class="badge badge-grey">❌ Canceled</span>',
+      };
+      const badge = statusMap[tx.status] || `<span class="badge badge-grey">${tx.status}</span>`;
+      const ars = tx.payment_amount
+        ? `$ ${Number(tx.payment_amount).toLocaleString('es-AR', {minimumFractionDigits: 2})} ${tx.payment_currency || 'ARS'}`
+        : '—';
+
+      return `<tr>
+        <td>${tx.created_at || '—'}</td>
+        <td class="mono">${tx.transaction_id?.substring(0, 16) || '—'}...</td>
+        <td>${tx.type_name || tx.type || '—'}</td>
+        <td><strong>${Number(tx.total_amount_taken || 0).toLocaleString()}</strong> ${tx.currency_taken || 'SAT'}</td>
+        <td style="color:#155724; font-weight:600;">${ars}</td>
+        <td>${badge}</td>
+      </tr>`;
+    }).join('');
+
+    document.getElementById('wapu-content').innerHTML = `
+      <table class="btc-table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Transaction ID</th>
+            <th>Type</th>
+            <th>Sats</th>
+            <th>ARS</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+  }
+
+  async function saveThreshold() {
+    const val = parseInt(document.getElementById('threshold-input').value);
+    if (!val || val < 1000) {
+      alert('Minimum threshold is 1,000 sats.');
+      return;
+    }
+    const btn = document.querySelector('.threshold-setting .btn-btc-primary');
+    btn.textContent = 'Saving...';
+    btn.disabled = true;
+    try {
+      const res = await fetch('/threshold/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ threshold_sat: val })
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      btn.textContent = '✅ Saved!';
+      btn.style.background = '#0d6efd';
+      // Refresh the dashboard to reflect new threshold
+      await loadDashboard();
+      setTimeout(() => {
+        btn.textContent = 'Save';
+        btn.style.background = '';
+        btn.disabled = false;
+      }, 2000);
+    } catch (e) {
+      btn.textContent = '❌ Error';
+      btn.disabled = false;
+      console.error(e);
+      setTimeout(() => { btn.textContent = 'Save'; }, 2000);
+    }
+  }
+
+  // Load on start, refresh every 30s
+  loadDashboard();
+  setInterval(loadDashboard, 30000);
+</script>
+
+</body>
+</html>

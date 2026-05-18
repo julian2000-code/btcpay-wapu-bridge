@@ -101,25 +101,21 @@
             <h4>Assembled SeedSigner Kit</h4>
             <p>Orange · Assembled</p>
           </div>
-          <div class="order-item-price">$79.99</div>
+          <div class="order-item-price">9,000 sats</div>
         </div>
 
         <div class="order-totals">
           <div class="order-total-row">
             <span>Subtotal</span>
-            <span>$79.99</span>
+            <span>9,000 sats</span>
           </div>
           <div class="order-total-row">
             <span>Shipping</span>
-            <span>$8.00</span>
+            <span>free</span>
           </div>
           <div class="order-total-row total">
             <span>Total</span>
-            <span>$87.99 USD</span>
-          </div>
-          <div class="order-total-row" style="margin-top: 0.25rem;">
-            <span style="color: var(--orange);">≈ sats</span>
-            <span id="sat-amount" style="color: var(--orange);">calculating...</span>
+            <span id="sat-amount" style="color: var(--orange);">9,000 sats ⚡</span>
           </div>
         </div>
       </div>
@@ -149,11 +145,7 @@
         <span>Waiting for payment...</span>
       </div>
 
-      <br>
-      <button class="btn btn-outline" onclick="simulatePayment()" style="width:100%; margin-top: 1rem;">
-        ✅ Simulate Payment (Demo)
-      </button>
-      <button class="btn" onclick="closeModal()" style="width:100%; margin-top: 0.5rem; background: #222; color: var(--muted);">
+      <button class="btn" onclick="closeModal()" style="width:100%; margin-top: 1.5rem; background: #222; color: var(--muted);">
         Cancel
       </button>
     </div>
@@ -165,10 +157,15 @@
   </footer>
 
   <script>
-    const AMOUNT_SAT = 88000; // ~$87.99 USD at demo rate
+    const AMOUNT_SAT = 9000;
     let bolt11 = '';
+    let transactionId = null;
+    let rHash = null;
+    let convertSat = 0;
+    let keepSat = 0;
+    let pollInterval = null;
 
-    document.getElementById('sat-amount').textContent = AMOUNT_SAT.toLocaleString() + ' sats';
+    document.getElementById('sat-amount').textContent = AMOUNT_SAT.toLocaleString() + ' sats ⚡';
 
     async function openLightningModal() {
       document.getElementById('lightning-modal').classList.add('active');
@@ -181,26 +178,124 @@
         });
         const data = await res.json();
         bolt11 = data.bolt11 || 'Invoice unavailable';
+        transactionId = data.wapu_response?.transaction_id || data.wapu_response?.id || null;
+        rHash = data.r_hash || null;
+        convertSat = data.convert_sat || 0;
+        keepSat = data.keep_sat || 0;
+        const invoiceSource = data.invoice_source || 'wapu';
+
+        const sourceLabel = invoiceSource === 'lnd'
+          ? `⚡ Above threshold — ${keepSat.toLocaleString()} sats to your Lightning node, ${convertSat.toLocaleString()} sats → ARS`
+          : '🇦🇷 Below threshold — converting to ARS via WapuPay';
+        document.getElementById('waiting-status').innerHTML =
+          `<span style="font-size:0.8rem; color:#888;">${sourceLabel}</span>`;
 
         document.getElementById('bolt11-display').textContent = bolt11;
 
-        // Generate real QR code from BOLT11
+        // Generate QR code from BOLT11
         const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(bolt11)}`;
         document.getElementById('qr-box').innerHTML =
-          `<img src="${qrUrl}" alt="Lightning QR Code" style="width:200px;height:200px;border-radius:8px;" />`;
+          `<div style="background:#fff;padding:16px;border-radius:8px;display:inline-block;"><img src="${qrUrl}" alt="Lightning QR Code" style="width:220px;height:220px;display:block;" /></div>`;
+
+        if (invoiceSource === 'lnd' && rHash) {
+          startLndPolling(rHash, convertSat, keepSat);
+        } else if (invoiceSource === 'wapu' && transactionId) {
+          startPolling(transactionId);
+        } else {
+          document.getElementById('waiting-status').innerHTML =
+            '<span style="color:#f7931a;">⚠️ Could not get payment ID</span>';
+        }
 
       } catch (e) {
         document.getElementById('bolt11-display').textContent = 'Error: ' + e.message;
       }
     }
 
+    function startLndPolling(rHash, convertSat, keepSat) {
+      let attempts = 0;
+      document.getElementById('waiting-status').innerHTML = `
+        <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+        <span>Waiting for Lightning payment to your node...</span>
+      `;
+      pollInterval = setInterval(async () => {
+        attempts++;
+        try {
+          const url = `/check-lnd-payment/${rHash}?convert_sat=${convertSat}&keep_sat=${keepSat}`;
+          const res = await fetch(url);
+          const data = await res.json();
+          if (data.paid || data.settled) {
+            clearInterval(pollInterval);
+            paymentConfirmed();
+          } else {
+            document.getElementById('waiting-status').innerHTML = `
+              <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+              <span>Waiting for Lightning payment... (check #${attempts})</span>
+            `;
+          }
+        } catch (e) {
+          console.warn('LND poll error:', e);
+        }
+      }, 3000);
+    }
+
+    function startPolling(txId) {
+      document.getElementById('waiting-status').innerHTML = `
+        <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+        <span>Waiting for payment... (checking every 3s)</span>
+      `;
+      let attempts = 0;
+      pollInterval = setInterval(async () => {
+        attempts++;
+        try {
+          const res = await fetch('/check-payment/' + txId);
+          const data = await res.json();
+          if (data.paid) {
+            clearInterval(pollInterval);
+            paymentConfirmed();
+          } else {
+            document.getElementById('waiting-status').innerHTML = `
+              <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+              <span>Waiting for payment... (check #${attempts}, status: ${data.status})</span>
+            `;
+          }
+        } catch (e) {
+          console.warn('Poll error:', e);
+        }
+      }, 3000);
+    }
+
+    async function paymentConfirmed() {
+      document.getElementById('waiting-status').innerHTML =
+        '<span style="color:#51b13e; font-size:1.1rem;">✅ Payment received! Redirecting...</span>';
+      document.getElementById('qr-box').innerHTML =
+        '<div style="font-size:3rem;">✅</div>';
+
+      // Record into threshold tracker so plugin dashboard updates
+      if (transactionId) {
+        try {
+          await fetch('/record-payment', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ transaction_id: transactionId, amount_sat: AMOUNT_SAT })
+          });
+        } catch (e) {
+          console.warn('Could not record payment:', e);
+        }
+      }
+
+      setTimeout(() => {
+        window.location.href = '/confirmation?amount_sat=' + AMOUNT_SAT + '&bolt11=' + encodeURIComponent(bolt11);
+      }, 1500);
+    }
+
     function closeModal() {
+      if (pollInterval) clearInterval(pollInterval);
       document.getElementById('lightning-modal').classList.remove('active');
     }
 
     function simulatePayment() {
-      // Redirect to confirmation page with demo data
-      window.location.href = '/confirmation?amount_sat=' + AMOUNT_SAT + '&bolt11=' + encodeURIComponent(bolt11);
+      if (pollInterval) clearInterval(pollInterval);
+      paymentConfirmed();
     }
   </script>
 

@@ -79,6 +79,20 @@ async def get_quote(amount_sat: float, transfer_type: str = "fast_fiat_transfer"
         return response.json()
 
 
+async def get_transaction(transaction_id: str) -> dict:
+    """
+    Fetch the status of a single WapuPay transaction.
+    Used to poll for Lightning invoice payment confirmation.
+    """
+    url = f"{WAPU_API_BASE_URL}/transactions/{transaction_id}"
+    headers = await get_auth_headers()
+
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url, headers=headers)
+        response.raise_for_status()
+        return response.json()
+
+
 async def get_transactions() -> dict:
     """
     Fetch all WapuPay transactions for this account.
@@ -89,6 +103,35 @@ async def get_transactions() -> dict:
 
     async with httpx.AsyncClient() as client:
         response = await client.get(url, headers=headers)
+        response.raise_for_status()
+        return response.json()
+
+
+async def convert_to_ars(amount_sat: float, transfer_type: str = "fast_fiat_transfer") -> dict:
+    """
+    Trigger an ARS conversion/withdrawal via WapuPay.
+    Called by the webhook after a BTCPay invoice settles.
+
+    Args:
+        amount_sat:    Amount in satoshis to convert
+        transfer_type: "fast_fiat_transfer" (<2h) or "fiat_transfer" (<24h)
+
+    Returns:
+        WapuPay response including ARS amount sent to merchant bank
+    """
+    url = f"{WAPU_API_BASE_URL}/transactions/create"
+    headers = await get_auth_headers()
+    payload = {
+        "amount": amount_sat,
+        "currency_taken": "SAT",
+        "currency_payment": "ARS",
+        "type": transfer_type,
+        "alias": WAPU_WITHDRAW_ALIAS,
+        "receiver_name": WAPU_RECEIVER_NAME
+    }
+
+    async with httpx.AsyncClient() as client:
+        response = await client.post(url, json=payload, headers=headers)
         response.raise_for_status()
         return response.json()
 

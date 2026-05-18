@@ -22,7 +22,7 @@
 
     <div class="confirmation-icon">✅</div>
     <h1>Payment Confirmed!</h1>
-    <p>Your Lightning payment was received and settled in ARS via WapuPay.<br>Your order is being prepared for shipment.</p>
+    <p>Your Lightning payment was received.<br>Your order is being prepared for shipment.</p>
 
     <!-- Payment summary -->
     <div class="confirmation-card">
@@ -31,24 +31,16 @@
         <span>Assembled SeedSigner Kit</span>
       </div>
       <div class="confirmation-row">
-        <span>Paid (sats)</span>
+        <span>Amount paid</span>
         <span id="paid-sats">—</span>
-      </div>
-      <div class="confirmation-row">
-        <span>Settled (ARS)</span>
-        <span class="ars" id="settled-ars">calculating...</span>
       </div>
       <div class="confirmation-row">
         <span>Payment method</span>
         <span>⚡ Lightning Network</span>
       </div>
       <div class="confirmation-row">
-        <span>Conversion</span>
-        <span>WapuPay → Merchant bank</span>
-      </div>
-      <div class="confirmation-row">
         <span>Status</span>
-        <span style="color: var(--green);">✅ Settled</span>
+        <span style="color: var(--green);">✅ Confirmed</span>
       </div>
       <div class="confirmation-row">
         <span>Shipping to</span>
@@ -75,31 +67,11 @@
 
   <script>
     const params = new URLSearchParams(window.location.search);
-    const amountSat = params.get('amount_sat') || '88000';
+    const amountSat = params.get('amount_sat') || '700';
     const bolt11 = params.get('bolt11') || 'lnbc...';
 
-    document.getElementById('paid-sats').textContent = parseInt(amountSat).toLocaleString() + ' sats';
+    document.getElementById('paid-sats').textContent = parseInt(amountSat).toLocaleString() + ' sats ⚡';
     document.getElementById('bolt11-receipt').textContent = bolt11;
-
-    // Fetch ARS amount from WapuPay quote
-    fetch('/create-payment', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ amount_sat: parseInt(amountSat), description: 'SeedSigner Kit' })
-    })
-    .then(r => r.json())
-    .then(data => {
-      const ars = data.ars_quote?.amount || data.ars_quote?.ars_amount || data.ars_quote?.payment_amount;
-      if (ars) {
-        document.getElementById('settled-ars').textContent =
-          '$ ' + parseFloat(ars).toLocaleString('es-AR', { minimumFractionDigits: 2 }) + ' ARS';
-      } else {
-        document.getElementById('settled-ars').textContent = '~ $ 87,990.00 ARS (demo)';
-      }
-    })
-    .catch(() => {
-      document.getElementById('settled-ars').textContent = '~ $ 87,990.00 ARS (demo)';
-    });
   </script>
 
 </body>

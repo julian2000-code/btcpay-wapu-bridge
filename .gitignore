@@ -30,3 +30,6 @@ nostr.py
 
 # Claude Code
 .claude/
+
+# Runtime data
+data/
