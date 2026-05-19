@@ -159,16 +159,15 @@
   <script>
     const AMOUNT_SAT = 7000;
     let bolt11 = '';
-    let transactionId = null;
-    let rHash = null;
-    let convertSat = 0;
-    let keepSat = 0;
+    let paymentHash = null;
     let pollInterval = null;
 
     document.getElementById('sat-amount').textContent = AMOUNT_SAT.toLocaleString() + ' sats ⚡';
 
     async function openLightningModal() {
       document.getElementById('lightning-modal').classList.add('active');
+      document.getElementById('qr-box').innerHTML = 'Generating invoice...';
+      document.getElementById('bolt11-display').textContent = 'Requesting invoice...';
 
       try {
         const res = await fetch('/create-payment', {
@@ -178,29 +177,16 @@
         });
         const data = await res.json();
         bolt11 = data.bolt11 || 'Invoice unavailable';
-        transactionId = data.wapu_response?.transaction_id || data.wapu_response?.id || null;
-        rHash = data.r_hash || null;
-        convertSat = data.convert_sat || 0;
-        keepSat = data.keep_sat || 0;
-        const invoiceSource = data.invoice_source || 'wapu';
-
-        const sourceLabel = (invoiceSource === 'lnd' || invoiceSource === 'phoenixd')
-          ? `⚡ Above threshold — ${keepSat.toLocaleString()} sats to your Phoenix wallet, ${convertSat.toLocaleString()} sats → ARS`
-          : '💱 Below threshold — converting to fiat via WapuPay';
-        document.getElementById('waiting-status').innerHTML =
-          `<span style="font-size:0.8rem; color:#888;">${sourceLabel}</span>`;
+        paymentHash = data.payment_hash || null;
 
         document.getElementById('bolt11-display').textContent = bolt11;
 
-        // Generate QR code from BOLT11
         const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(bolt11)}`;
         document.getElementById('qr-box').innerHTML =
           `<div style="background:#fff;padding:16px;border-radius:8px;display:inline-block;"><img src="${qrUrl}" alt="Lightning QR Code" style="width:220px;height:220px;display:block;" /></div>`;
 
-        if ((invoiceSource === 'lnd' || invoiceSource === 'phoenixd') && rHash) {
-          startLndPolling(rHash, convertSat, keepSat);
-        } else if (invoiceSource === 'wapu' && transactionId) {
-          startPolling(transactionId);
+        if (paymentHash) {
+          startPolling(paymentHash);
         } else {
           document.getElementById('waiting-status').innerHTML =
             '<span style="color:#f7931a;">⚠️ Could not get payment ID</span>';
@@ -211,43 +197,16 @@
       }
     }
 
-    function startLndPolling(rHash, convertSat, keepSat) {
+    function startPolling(hash) {
       let attempts = 0;
       document.getElementById('waiting-status').innerHTML = `
         <div class="dot"></div><div class="dot"></div><div class="dot"></div>
-        <span>Waiting for Lightning payment to your node...</span>
+        <span>Waiting for payment...</span>
       `;
       pollInterval = setInterval(async () => {
         attempts++;
         try {
-          const url = `/check-lnd-payment/${rHash}?convert_sat=${convertSat}&keep_sat=${keepSat}`;
-          const res = await fetch(url);
-          const data = await res.json();
-          if (data.paid || data.settled) {
-            clearInterval(pollInterval);
-            paymentConfirmed();
-          } else {
-            document.getElementById('waiting-status').innerHTML = `
-              <div class="dot"></div><div class="dot"></div><div class="dot"></div>
-              <span>Waiting for Lightning payment... (check #${attempts})</span>
-            `;
-          }
-        } catch (e) {
-          console.warn('LND poll error:', e);
-        }
-      }, 3000);
-    }
-
-    function startPolling(txId) {
-      document.getElementById('waiting-status').innerHTML = `
-        <div class="dot"></div><div class="dot"></div><div class="dot"></div>
-        <span>Waiting for payment... (checking every 3s)</span>
-      `;
-      let attempts = 0;
-      pollInterval = setInterval(async () => {
-        attempts++;
-        try {
-          const res = await fetch('/check-payment/' + txId);
+          const res = await fetch('/check-payment/' + hash);
           const data = await res.json();
           if (data.paid) {
             clearInterval(pollInterval);
@@ -255,7 +214,7 @@
           } else {
             document.getElementById('waiting-status').innerHTML = `
               <div class="dot"></div><div class="dot"></div><div class="dot"></div>
-              <span>Waiting for payment... (check #${attempts}, status: ${data.status})</span>
+              <span>Waiting for payment... (${attempts})</span>
             `;
           }
         } catch (e) {
@@ -267,22 +226,7 @@
     async function paymentConfirmed() {
       document.getElementById('waiting-status').innerHTML =
         '<span style="color:#51b13e; font-size:1.1rem;">✅ Payment received! Redirecting...</span>';
-      document.getElementById('qr-box').innerHTML =
-        '<div style="font-size:3rem;">✅</div>';
-
-      // Record into threshold tracker so plugin dashboard updates
-      if (transactionId) {
-        try {
-          await fetch('/record-payment', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ transaction_id: transactionId, amount_sat: AMOUNT_SAT })
-          });
-        } catch (e) {
-          console.warn('Could not record payment:', e);
-        }
-      }
-
+      document.getElementById('qr-box').innerHTML = '<div style="font-size:3rem;">✅</div>';
       setTimeout(() => {
         window.location.href = '/confirmation?amount_sat=' + AMOUNT_SAT + '&bolt11=' + encodeURIComponent(bolt11);
       }, 1500);
@@ -291,11 +235,6 @@
     function closeModal() {
       if (pollInterval) clearInterval(pollInterval);
       document.getElementById('lightning-modal').classList.remove('active');
-    }
-
-    function simulatePayment() {
-      if (pollInterval) clearInterval(pollInterval);
-      paymentConfirmed();
     }
   </script>
 

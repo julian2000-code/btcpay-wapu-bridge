@@ -35,6 +35,18 @@ async def get_auth_headers() -> dict:
         return {"Authorization": f"Bearer {token}", "Accept": "application/json"}
 
 
+async def get_wapu_home() -> dict:
+    """
+    Get WapuPay account info including USDT balance, ARS equivalent, and exchange rates.
+    """
+    url = f"{WAPU_API_BASE_URL}/users/home"
+    headers = await get_auth_headers()
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url, headers=headers)
+        response.raise_for_status()
+        return response.json()
+
+
 async def get_lightning_address() -> str:
     """
     Get the WapuPay Lightning Address for this account.

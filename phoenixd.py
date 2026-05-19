@@ -61,16 +61,49 @@ async def get_phoenixd_invoice(payment_hash: str) -> dict:
         return response.json()
 
 
+async def pay_phoenixd_invoice(bolt11: str) -> dict:
+    """
+    Pay a Lightning invoice from phoenixd.
+    Used to send sats from the merchant wallet to WapuPay for USDT conversion.
+    """
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            f"{PHOENIXD_URL}/payinvoice",
+            auth=_auth(),
+            data={"invoice": bolt11}
+        )
+        response.raise_for_status()
+        return response.json()
+
+
+async def list_phoenixd_payments(limit: int = 50) -> list:
+    """
+    List all incoming Lightning payments received by phoenixd.
+    Returns paid invoices with amount, description, and timestamp.
+    """
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            f"{PHOENIXD_URL}/payments/incoming",
+            auth=_auth(),
+            params={"limit": limit}
+        )
+        response.raise_for_status()
+        return response.json()
+
+
 async def get_phoenixd_balance() -> dict:
     """
     Get the current Lightning balance in phoenixd.
-    Returns balanceSat (spendable) and feeCreditSat.
+    Sums balanceSat across all open channels.
     """
     async with httpx.AsyncClient() as client:
         response = await client.get(f"{PHOENIXD_URL}/getinfo", auth=_auth())
         response.raise_for_status()
         data = response.json()
+        channels = data.get("channels", [])
+        total_sat = sum(ch.get("balanceSat", 0) for ch in channels)
         return {
-            "local": data.get("channelsBalanceSat", 0),
+            "local": total_sat,
             "node_id": data.get("nodeId", ""),
+            "channels": len(channels),
         }
