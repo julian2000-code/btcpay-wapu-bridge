@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>WapuPay ARS Settlement – BTCPay Plugin</title>
+  <title>SatTope – Merchant Dashboard</title>
   <link rel="stylesheet" href="/static/style.css" />
   <style>
     /* ── BTCPay-like layout ───────────────────────────────── */
@@ -371,20 +371,19 @@
   <!-- Sidebar -->
   <div class="sidebar">
     <div class="sidebar-logo">
-      ₿ <span>BTC</span>Pay Server
+      ⚡ <span>Sat</span>Tope
     </div>
     <div class="sidebar-store">
-      Current Store
-      <strong id="store-name">Loading...</strong>
+      Merchant
+      <strong id="store-name">BTC Hardware Solutions</strong>
     </div>
     <nav class="sidebar-nav">
       <div class="nav-item active">
-        <span class="icon">🇦🇷</span> WapuPay ARS
-        <span class="plugin-tag">PLUGIN</span>
+        <span class="icon">🇦🇷</span> ARS Settlement
       </div>
     </nav>
     <div class="sidebar-footer">
-      BTCPay Server 2.3.9 · Regtest
+      SatTope · Powered by WapuPay
     </div>
   </div>
 
@@ -394,7 +393,7 @@
     <!-- Topbar -->
     <div class="topbar">
       <div>
-        <h1>🇦🇷 WapuPay ARS Settlement</h1>
+        <h1>⚡ SatTope Dashboard</h1>
         <p>Automatic Lightning → ARS conversion for Argentine merchants</p>
       </div>
       <div class="topbar-actions">
@@ -410,8 +409,7 @@
 
       <!-- Info banner -->
       <div class="alert-info">
-        ℹ️ This is a preview of the <strong>WapuPay ARS Settlement BTCPay Plugin</strong>.
-        Data is pulled live from your BTCPay Server and WapuPay staging account.
+        ℹ️ <strong>SatTope</strong> — set a monthly sat conversion cap. Below the tope, payments auto-convert to ARS via WapuPay. Above it, sats stay in your Lightning wallet.
       </div>
 
       <!-- Stats -->
@@ -427,9 +425,9 @@
           <div class="sub">sats saved</div>
         </div>
         <div class="stat-card">
-          <h3>BTCPay Invoices</h3>
+          <h3>Lightning Payments</h3>
           <div class="value blue" id="stat-invoices">—</div>
-          <div class="sub">total invoices</div>
+          <div class="sub">total payments</div>
         </div>
         <div class="stat-card">
           <h3>Threshold Remaining</h3>
@@ -459,19 +457,25 @@
           <div class="threshold-setting">
             <label>
               Convert the first <strong>X sats</strong> each month to ARS automatically.
-              Everything above stays in your BTCPay Lightning wallet.
+              Everything above stays in your Lightning wallet.
             </label>
             <input type="number" id="threshold-input" value="500000" min="1000" step="1000" />
             <button class="btn-btc btn-btc-primary" onclick="saveThreshold()">Save</button>
           </div>
+          <div style="margin-top:1rem; padding-top:1rem; border-top:1px solid var(--btc-border);">
+            <button class="btn-btc" onclick="resetDemo()" style="background:#fff3cd; color:#856404; border:1px solid #ffc107; padding:0.45rem 1rem; font-size:0.85rem; border-radius:6px; cursor:pointer;">
+              🔄 Reset Demo
+            </button>
+            <span style="font-size:0.78rem; color:var(--btc-muted); margin-left:0.75rem;">Clears payment history and resets converted sats to zero</span>
+          </div>
         </div>
       </div>
 
-      <!-- Tabs: ARS Payouts / BTCPay Invoices / WapuPay Transactions -->
+      <!-- Tabs: ARS Payouts / Lightning Payments / WapuPay Transactions -->
       <div class="card">
         <div class="tabs">
           <div class="tab active" onclick="switchTab('ars')">🇦🇷 ARS Payouts</div>
-          <div class="tab" onclick="switchTab('invoices')">⚡ BTCPay Invoices</div>
+          <div class="tab" onclick="switchTab('invoices')">⚡ Lightning Payments</div>
           <div class="tab" onclick="switchTab('wapu')">💱 WapuPay Transactions</div>
         </div>
 
@@ -480,9 +484,9 @@
           <div id="ars-content" class="loading">Loading ARS payouts...</div>
         </div>
 
-        <!-- BTCPay Invoices tab -->
+        <!-- Lightning Payments tab -->
         <div class="tab-content" id="tab-invoices">
-          <div id="invoices-content" class="loading">Loading BTCPay invoices...</div>
+          <div id="invoices-content" class="loading">Loading payments...</div>
         </div>
 
         <!-- WapuPay Transactions tab -->
@@ -533,7 +537,7 @@
     const t = data.threshold;
     document.getElementById('stat-converted').textContent = t.converted_sat.toLocaleString() + ' sats';
     document.getElementById('stat-kept').textContent = t.above_threshold_sat.toLocaleString() + ' sats';
-    document.getElementById('stat-invoices').textContent = (data.btcpay_invoices || []).length;
+    document.getElementById('stat-invoices').textContent = (data.lightning_payments || []).length;
     document.getElementById('stat-remaining').textContent = t.remaining_to_convert_sat.toLocaleString() + ' sats';
     document.getElementById('threshold-input').value = t.threshold_sat;
     document.getElementById('threshold-month').textContent = 'Month: ' + t.month;
@@ -547,8 +551,8 @@
     // ARS Payouts tab
     renderARSPayouts(data.ars_payouts, t.payments);
 
-    // BTCPay Invoices tab
-    renderInvoices(data.btcpay_invoices);
+    // Lightning Payments tab
+    renderInvoices(data.lightning_payments);
 
     // WapuPay Transactions tab
     renderWapuTxs(data.wapu_transactions);
@@ -609,33 +613,29 @@
       </table>`;
   }
 
-  function renderInvoices(invoices) {
-    if (!invoices || invoices.length === 0) {
+  function renderInvoices(payments) {
+    if (!payments || payments.length === 0) {
       document.getElementById('invoices-content').innerHTML = `
         <div class="empty-state">
           <div class="icon">⚡</div>
-          <h3>No invoices yet</h3>
-          <p>Create a payment in the webstore to generate your first invoice.</p>
+          <h3>No payments yet</h3>
+          <p>Complete a purchase in the webstore to see payments here.</p>
         </div>`;
       return;
     }
 
-    let rows = invoices.map(inv => {
-      const statusMap = {
-        'Settled': '<span class="badge badge-green">✅ Settled</span>',
-        'Processing': '<span class="badge badge-blue">⏳ Processing</span>',
-        'Expired': '<span class="badge badge-grey">⏰ Expired</span>',
-        'Invalid': '<span class="badge badge-grey">❌ Invalid</span>',
-        'New': '<span class="badge badge-blue">🆕 New</span>',
+    let rows = payments.map(p => {
+      const typeMap = {
+        'converted': '<span class="badge badge-green">🇦🇷 Converted to ARS</span>',
+        'kept_in_lightning': '<span class="badge badge-orange">⚡ Kept in Lightning</span>',
       };
-      const badge = statusMap[inv.status] || `<span class="badge badge-grey">${inv.status}</span>`;
+      const badge = typeMap[p.type] || `<span class="badge badge-grey">${p.type}</span>`;
 
       return `<tr>
-        <td class="mono">${inv.id?.substring(0, 16)}...</td>
-        <td>${inv.currency || 'SATS'}</td>
-        <td><strong>${Number(inv.amount || 0).toLocaleString()}</strong></td>
+        <td class="mono">${(p.id || '—').substring(0, 20)}...</td>
+        <td><strong>${Number(p.amount_sat || 0).toLocaleString()}</strong> sats</td>
         <td>${badge}</td>
-        <td class="mono" style="font-size:0.75rem;">${inv.createdTime || '—'}</td>
+        <td class="mono" style="font-size:0.75rem;">${p.date || '—'}</td>
       </tr>`;
     }).join('');
 
@@ -643,11 +643,10 @@
       <table class="btc-table">
         <thead>
           <tr>
-            <th>Invoice ID</th>
-            <th>Currency</th>
+            <th>Payment ID</th>
             <th>Amount</th>
-            <th>Status</th>
-            <th>Created</th>
+            <th>Type</th>
+            <th>Date</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
@@ -736,6 +735,18 @@
       btn.disabled = false;
       console.error(e);
       setTimeout(() => { btn.textContent = 'Save'; }, 2000);
+    }
+  }
+
+  async function resetDemo() {
+    if (!confirm('Reset demo? This clears all payment history and sets converted sats back to zero.')) return;
+    try {
+      const res = await fetch('/reset-demo', { method: 'POST' });
+      if (!res.ok) throw new Error(await res.text());
+      await loadDashboard();
+      alert('✅ Demo reset! Threshold tracker is back to zero.');
+    } catch (e) {
+      alert('Error resetting demo: ' + e.message);
     }
   }
 

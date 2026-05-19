@@ -1,33 +1,28 @@
 """
-BTCPay → WapuPay bridge.
+SatTope — Lightning payment layer for Argentine merchants.
 
 Flow:
 1. Customer visits the webstore and picks a product
-2. At checkout, app asks WapuPay for a Lightning invoice (BOLT11)
-3. Customer scans the BOLT11 QR code and pays with their Lightning wallet
-4. Sats land directly in WapuPay — no second transaction needed
-5. WapuPay applies threshold logic:
-   - Below threshold → converts sats to ARS, sends to merchant bank
-   - Above threshold → keeps sats in BTCPay Lightning wallet
-6. BTCPay webhook fires for order confirmation and threshold tracking
+2. At checkout, SatTope checks the monthly conversion tope
+3. Below tope → WapuPay generates the invoice, sats auto-convert to ARS
+4. Above tope → LND node generates the invoice, sats stay in Lightning
+5. Dashboard shows conversion history, threshold status, and WapuPay transactions
 """
 
 import base64
-import json
 import logging
 import os
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-from btcpay import get_invoice, get_invoices, get_lightning_balance, get_payouts, get_store_info, validate_webhook_signature
-from lnd import create_lnd_invoice, get_lnd_invoice, pay_lnd_invoice
+from lnd import create_lnd_invoice, get_lnd_balance, get_lnd_invoice, pay_lnd_invoice
 from threshold import get_status, record_conversion, record_kept, should_convert, update_threshold
-from wapu import convert_to_ars, create_lightning_invoice, get_lightning_address, get_quote, get_transaction, get_transactions
+from wapu import create_lightning_invoice, get_lightning_address, get_quote, get_transaction, get_transactions
 
 load_dotenv()
 
@@ -37,12 +32,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-BTCPAY_WEBHOOK_SECRET = os.getenv("BTCPAY_WEBHOOK_SECRET")
-
 app = FastAPI(
-    title="BTCPay → WapuPay Bridge",
-    description="Lightning payments with smart ARS conversion threshold",
-    version="3.0.0"
+    title="SatTope",
+    description="Lightning payment layer for Argentine merchants — auto-converts sats to ARS below your monthly tope, stacks sats above it.",
+    version="1.0.0"
 )
 
 # Serve static files (CSS) and HTML templates
@@ -50,11 +43,20 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
 
-# --- Request model ---
+# --- Request models ---
 
 class PaymentRequest(BaseModel):
     amount_sat: float
     description: str = "Payment"
+
+
+class ThresholdUpdate(BaseModel):
+    threshold_sat: int
+
+
+class RecordPaymentRequest(BaseModel):
+    transaction_id: str
+    amount_sat: float
 
 
 # --- Store pages ---
@@ -79,13 +81,13 @@ async def checkout_page(request: Request):
 
 @app.get("/confirmation", response_class=HTMLResponse)
 async def confirmation_page(request: Request):
-    """Payment confirmation + ARS conversion summary."""
+    """Payment confirmation page."""
     return templates.TemplateResponse(request, "confirmation.html")
 
 
 @app.get("/plugin", response_class=HTMLResponse)
 async def plugin_page(request: Request):
-    """BTCPay plugin mockup — WapuPay ARS Settlement dashboard."""
+    """SatTope merchant dashboard."""
     return templates.TemplateResponse(request, "plugin.html")
 
 
@@ -103,15 +105,8 @@ async def lightning_address():
 
 @app.get("/threshold")
 async def threshold_status():
-    """
-    Returns current month's conversion threshold status.
-    Shows how many sats have been converted vs kept in Lightning.
-    """
+    """Returns current month's conversion threshold status."""
     return get_status()
-
-
-class ThresholdUpdate(BaseModel):
-    threshold_sat: int
 
 
 @app.post("/threshold/update")
@@ -127,27 +122,20 @@ async def update_threshold_endpoint(body: ThresholdUpdate):
 @app.get("/api/dashboard")
 async def dashboard():
     """
-    Aggregates real data from BTCPay and WapuPay for the plugin page.
-    Returns invoices, Lightning balance, WapuPay transactions, and threshold status.
+    Aggregates data for the SatTope merchant dashboard.
+    Returns Lightning balance, WapuPay transactions, threshold status, and payment history.
     """
-    # Fetch from BTCPay
+    # Lightning node balance
     try:
-        store = await get_store_info()
-        store_name = store.get("name", "My Store")
-    except Exception:
-        store_name = "My Store"
-
-    try:
-        invoices = await get_invoices()
-    except Exception:
-        invoices = []
-
-    try:
-        lightning_balance = await get_lightning_balance()
+        lnd_balance = await get_lnd_balance()
+        lightning_balance = {
+            "local": int(lnd_balance.get("local_balance", {}).get("sat", 0)),
+            "remote": int(lnd_balance.get("remote_balance", {}).get("sat", 0)),
+        }
     except Exception:
         lightning_balance = {}
 
-    # Fetch from WapuPay
+    # WapuPay transactions
     try:
         wapu_txs = await get_transactions()
         if isinstance(wapu_txs, dict):
@@ -158,28 +146,14 @@ async def dashboard():
     # Threshold status
     threshold = get_status()
 
-    # Build a lookup of WapuPay transactions by transaction_id for cross-referencing
+    # Build WapuPay lookup for cross-referencing ARS amounts
     wapu_tx_lookup = {}
     for tx in wapu_txs:
         tx_id = tx.get("transaction_id") or tx.get("id")
         if tx_id:
             wapu_tx_lookup[str(tx_id)] = tx
 
-    # Build unified payment list from BTCPay settled invoices
-    payments = []
-    for inv in invoices:
-        if inv.get("status") == "Settled":
-            amount_sat = float(inv.get("amount", 0))
-            payments.append({
-                "date": inv.get("createdTime", ""),
-                "invoice_id": inv.get("id", ""),
-                "amount_sat": amount_sat,
-                "currency": inv.get("currency", "SATS"),
-                "status": "Settled",
-                "ars_amount": None
-            })
-
-    # Build ARS payouts from threshold payments, enriched with live WapuPay data
+    # ARS payouts enriched with live WapuPay data
     ars_payouts = []
     for p in threshold.get("payments", []):
         tx_id = str(p.get("invoice_id", ""))
@@ -187,7 +161,6 @@ async def dashboard():
         wapu_status = wapu_tx.get("status", "").upper() if wapu_tx else ""
         is_completed = wapu_status in ("COMPLETED", "DONE", "PAID", "SUCCESS")
 
-        # Use live ARS amount from WapuPay if available, fall back to recorded amount
         live_ars = float(wapu_tx.get("payment_amount") or 0) if wapu_tx else 0
         ars_amount = live_ars if live_ars > 0 else float(p.get("ars_amount") or 0)
 
@@ -200,10 +173,22 @@ async def dashboard():
             "wapu_status": wapu_status or ("COMPLETED" if ars_amount > 0 else "PENDING")
         })
 
+    # Lightning payments list (all threshold-tracked payments)
+    lightning_payments = [
+        {
+            "id": p.get("invoice_id", ""),
+            "date": p.get("date", ""),
+            "amount_sat": p.get("amount_sat", 0),
+            "type": p.get("type", "converted"),
+            "status": "Settled"
+        }
+        for p in threshold.get("payments", [])
+    ]
+
     return {
-        "store_name": store_name,
+        "store_name": "BTC Hardware Solutions",
         "lightning_balance": lightning_balance,
-        "btcpay_invoices": invoices,
+        "lightning_payments": lightning_payments,
         "ars_payouts": ars_payouts,
         "threshold": threshold,
         "wapu_transactions": wapu_txs
@@ -213,36 +198,31 @@ async def dashboard():
 @app.post("/create-payment")
 async def create_payment(payment: PaymentRequest):
     """
-    Creates a Lightning invoice — either via WapuPay (below threshold)
-    or via BTCPay's LND node (above threshold).
+    Creates a Lightning invoice based on the monthly tope.
 
-    Below threshold: WapuPay generates invoice → sats convert to ARS automatically.
-    Above threshold: BTCPay LND generates invoice → sats land in Lightning wallet.
-    If payment would split the threshold, BTCPay generates the invoice and the
-    webhook handles sending the ARS portion to WapuPay after settlement.
+    Below tope: WapuPay generates the invoice → sats auto-convert to ARS.
+    Above tope: LND node generates the invoice → sats stay in Lightning wallet.
+    Split: LND generates the invoice; on settlement, the ARS portion is sent to WapuPay.
     """
     logger.info(f"Creating payment for {payment.amount_sat} sats")
 
-    # Check threshold to decide invoice source
     will_convert, convert_sat, keep_sat = should_convert(payment.amount_sat)
-    use_btcpay = keep_sat > 0  # True if any sats would be kept (at or over threshold)
+    use_lnd = keep_sat > 0  # True if any sats would be kept
 
-    # Get ARS quote
+    # Get ARS quote for display
     try:
         quote = await get_quote(min(convert_sat, payment.amount_sat) if convert_sat > 0 else payment.amount_sat)
     except Exception as e:
         logger.warning(f"Could not get quote: {e}")
         quote = {}
 
-    if use_btcpay:
-        # Above threshold — LND node generates the invoice directly (real mainnet BOLT11)
-        # App polls LND for settlement, then sends ARS portion to WapuPay
+    if use_lnd:
+        # Above tope — LND generates the invoice, sats land in Lightning
         try:
             invoice = await create_lnd_invoice(payment.amount_sat, payment.description)
             logger.info(f"LND invoice created: {invoice}")
             bolt11 = invoice.get("payment_request")
             r_hash = invoice.get("r_hash", "")
-            # r_hash comes as base64 from LND REST — convert to hex for polling
             try:
                 r_hash_hex = base64.b64decode(r_hash).hex()
             except Exception:
@@ -265,7 +245,7 @@ async def create_payment(payment: PaymentRequest):
             logger.error(f"Failed to create LND invoice: {e}")
             raise HTTPException(status_code=502, detail=f"LND error: {str(e)}")
     else:
-        # Below threshold — WapuPay generates the invoice → auto-converts to ARS
+        # Below tope — WapuPay generates the invoice → auto-converts to ARS
         try:
             invoice = await create_lightning_invoice(payment.amount_sat)
             logger.info(f"WapuPay invoice created: {invoice}")
@@ -287,17 +267,11 @@ async def create_payment(payment: PaymentRequest):
             raise HTTPException(status_code=502, detail=f"WapuPay error: {str(e)}")
 
 
-class RecordPaymentRequest(BaseModel):
-    transaction_id: str
-    amount_sat: float
-
-
 @app.post("/record-payment")
 async def record_payment(body: RecordPaymentRequest):
     """
-    Called by the checkout page the moment WapuPay confirms a payment.
-    Fetches the real ARS amount from WapuPay, then records everything
-    into the threshold tracker so the plugin dashboard updates.
+    Called by the checkout page when WapuPay confirms a payment.
+    Fetches the real ARS amount from WapuPay, records into threshold tracker.
     Ignores duplicates — safe to call multiple times for the same transaction.
     """
     status = get_status()
@@ -308,7 +282,6 @@ async def record_payment(body: RecordPaymentRequest):
     if already_recorded:
         return {"status": "already_recorded", "threshold": status}
 
-    # Fetch real ARS amount from WapuPay — only record it if WapuPay has completed the conversion
     ars_amount = 0
     try:
         tx = await get_transaction(body.transaction_id)
@@ -326,7 +299,7 @@ async def record_payment(body: RecordPaymentRequest):
     if keep_sat > 0:
         record_kept(keep_sat, body.transaction_id)
 
-    logger.info(f"Recorded WapuPay payment {body.transaction_id}: {convert_sat} sat converted → {ars_amount} ARS, {keep_sat} sat kept")
+    logger.info(f"Recorded payment {body.transaction_id}: {convert_sat} sat → {ars_amount} ARS, {keep_sat} sat kept")
     return {
         "status": "recorded",
         "converted_sat": convert_sat,
@@ -336,20 +309,37 @@ async def record_payment(body: RecordPaymentRequest):
     }
 
 
+@app.post("/reset-demo")
+async def reset_demo():
+    """
+    Resets the threshold tracker to zero for demo purposes.
+    Keeps the threshold_sat setting but clears converted_sat and payment history.
+    """
+    from threshold import _load, _save
+    data = _load()
+    threshold_sat = data.get("threshold_sat", 10000)
+    fresh = {
+        "month": data["month"],
+        "threshold_sat": threshold_sat,
+        "converted_sat": 0,
+        "payments": []
+    }
+    _save(fresh)
+    logger.info("Demo reset: threshold cleared")
+    return {"status": "reset", "threshold_sat": threshold_sat}
+
+
 @app.get("/check-lnd-payment/{r_hash}")
 async def check_lnd_payment(r_hash: str, convert_sat: float = 0, keep_sat: float = 0):
     """
-    Poll LND for invoice settlement status.
-    When paid, triggers the split: sends convert_sat to WapuPay, keeps keep_sat in LND.
+    Poll LND for invoice settlement.
+    When paid, records the split and triggers ARS conversion for the convert_sat portion.
     """
     try:
         invoice = await get_lnd_invoice(r_hash)
         settled = invoice.get("settled", False)
 
         if settled and convert_sat > 0:
-            # Payment landed in LND — record the split
-            # Note: on staging, LND→WapuPay auto-payment may fail due to node topology.
-            # In production this would trigger an outbound payment to WapuPay.
             try:
                 wapu_invoice = await create_lightning_invoice(convert_sat)
                 wapu_bolt11 = (
@@ -360,13 +350,12 @@ async def check_lnd_payment(r_hash: str, convert_sat: float = 0, keep_sat: float
                 await pay_lnd_invoice(wapu_bolt11)
                 logger.info(f"LND→WapuPay payment sent for {convert_sat} sats")
             except Exception as e:
-                logger.warning(f"LND→WapuPay auto-payment skipped (staging limitation): {e}")
+                logger.warning(f"LND→WapuPay auto-payment skipped: {e}")
 
-            # Always record the split regardless of payment success
             record_conversion(convert_sat, 0, r_hash)
             if keep_sat > 0:
                 record_kept(keep_sat, r_hash)
-            logger.info(f"Split recorded: {convert_sat} sat → ARS conversion, {keep_sat} sat kept in Lightning")
+            logger.info(f"Split recorded: {convert_sat} sat → ARS, {keep_sat} sat kept")
 
         return {"paid": settled, "settled": settled, "invoice": invoice}
     except Exception as e:
@@ -379,18 +368,12 @@ async def check_payment(transaction_id: str):
     """
     Poll WapuPay for the status of a Lightning invoice.
     Called every few seconds by the checkout page to detect payment.
-    Returns paid=True when WapuPay confirms the payment landed.
     """
     try:
         tx = await get_transaction(transaction_id)
         status = tx.get("status", "").upper()
-        # WapuPay marks completed payments as COMPLETED or DONE
         paid = status in ("COMPLETED", "DONE", "PAID", "SUCCESS")
-        return {
-            "paid": paid,
-            "status": status,
-            "transaction": tx
-        }
+        return {"paid": paid, "status": status, "transaction": tx}
     except Exception as e:
         logger.warning(f"Payment check failed for {transaction_id}: {e}")
         return {"paid": False, "status": "ERROR", "error": str(e)}
@@ -403,97 +386,4 @@ async def transactions():
         result = await get_transactions()
         return {"transactions": result}
     except Exception as e:
-        raise HTTPException(status_code=502, detail=str(e))
-
-
-@app.post("/webhook/btcpay")
-async def btcpay_webhook(
-    request: Request,
-    btcpay_sig: str = Header(None, alias="BTCPay-Sig")
-):
-    """
-    Receives webhook events from BTCPay Server.
-    Applies threshold logic: convert to ARS or keep in Lightning.
-    """
-    payload_bytes = await request.body()
-
-    # Validate signature
-    if not BTCPAY_WEBHOOK_SECRET:
-        logger.warning("BTCPAY_WEBHOOK_SECRET not set — skipping signature check")
-    elif not btcpay_sig:
-        raise HTTPException(status_code=401, detail="Missing signature header")
-    elif not validate_webhook_signature(payload_bytes, btcpay_sig, BTCPAY_WEBHOOK_SECRET):
-        raise HTTPException(status_code=401, detail="Invalid signature")
-
-    event = json.loads(payload_bytes)
-    event_type = event.get("type")
-    invoice_id = event.get("invoiceId")
-
-    logger.info(f"BTCPay event: {event_type} | Invoice: {invoice_id}")
-
-    if event_type != "InvoiceSettled":
-        return {"status": "ignored", "event_type": event_type}
-
-    # Get invoice details to find amount
-    try:
-        invoice = await get_invoice(invoice_id)
-        amount_sat = float(invoice.get("amount", 0))
-    except Exception as e:
-        logger.error(f"Could not fetch invoice: {e}")
-        raise HTTPException(status_code=502, detail=str(e))
-
-    # Apply threshold logic
-    will_convert, convert_sat, keep_sat = should_convert(amount_sat)
-
-    if not will_convert:
-        # Threshold already reached — everything stays in Lightning
-        record_kept(amount_sat, invoice_id)
-        logger.info(f"Threshold reached — keeping {amount_sat} sats in Lightning")
-        return {
-            "status": "kept_in_lightning",
-            "amount_sat": amount_sat,
-            "reason": "Monthly ARS threshold reached"
-        }
-
-    # Need to convert convert_sat to ARS via WapuPay.
-    # Since sats landed in BTCPay's LND node, we pay a WapuPay invoice from LND.
-    ars_amount = 0
-    try:
-        # Step 1: Create a WapuPay Lightning invoice for the ARS portion
-        wapu_invoice = await create_lightning_invoice(convert_sat)
-        wapu_bolt11 = (
-            wapu_invoice.get("lnurl_pr_invoice") or
-            wapu_invoice.get("payment_request") or
-            wapu_invoice.get("bolt11")
-        )
-        logger.info(f"WapuPay invoice created for {convert_sat} sats: {wapu_bolt11[:40]}...")
-
-        # Step 2: Pay the WapuPay invoice from BTCPay's LND node
-        pay_result = await pay_lightning_invoice(wapu_bolt11)
-        logger.info(f"LND paid WapuPay invoice: {pay_result}")
-
-        # Step 3: Check WapuPay for the ARS amount
-        wapu_tx_id = wapu_invoice.get("transaction_id") or wapu_invoice.get("id")
-        if wapu_tx_id:
-            try:
-                tx = await get_transaction(wapu_tx_id)
-                ars_amount = float(tx.get("payment_amount") or 0)
-            except Exception:
-                pass
-
-        record_conversion(convert_sat, ars_amount, invoice_id)
-        logger.info(f"Converted {convert_sat} sats → {ars_amount} ARS")
-
-        if keep_sat > 0:
-            record_kept(keep_sat, invoice_id)
-            logger.info(f"Kept {keep_sat} sats in Lightning node")
-
-        return {
-            "status": "success",
-            "converted_sat": convert_sat,
-            "kept_sat": keep_sat,
-            "ars_amount": ars_amount
-        }
-    except Exception as e:
-        logger.error(f"LND → WapuPay payment failed: {e}")
         raise HTTPException(status_code=502, detail=str(e))

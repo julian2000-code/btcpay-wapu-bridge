@@ -64,6 +64,18 @@ async def get_lnd_invoice(r_hash_hex: str) -> dict:
         return response.json()
 
 
+async def get_lnd_balance() -> dict:
+    """
+    Get the Lightning channel balance from LND.
+    Returns local (spendable) and remote (receivable) sats.
+    """
+    url = f"https://{LND_REST_HOST}/v1/balance/channels"
+    async with httpx.AsyncClient(verify=False) as client:
+        response = await client.get(url, headers=_get_headers())
+        response.raise_for_status()
+        return response.json()
+
+
 async def pay_lnd_invoice(bolt11: str) -> dict:
     """
     Pay a Lightning invoice from the LND node.
