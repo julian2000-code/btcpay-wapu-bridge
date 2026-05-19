@@ -101,13 +101,13 @@
             <h4>Assembled SeedSigner Kit</h4>
             <p>Orange · Assembled</p>
           </div>
-          <div class="order-item-price">9,000 sats</div>
+          <div class="order-item-price">7,000 sats</div>
         </div>
 
         <div class="order-totals">
           <div class="order-total-row">
             <span>Subtotal</span>
-            <span>9,000 sats</span>
+            <span>7,000 sats</span>
           </div>
           <div class="order-total-row">
             <span>Shipping</span>
@@ -115,7 +115,7 @@
           </div>
           <div class="order-total-row total">
             <span>Total</span>
-            <span id="sat-amount" style="color: var(--orange);">9,000 sats ⚡</span>
+            <span id="sat-amount" style="color: var(--orange);">7,000 sats ⚡</span>
           </div>
         </div>
       </div>
@@ -128,7 +128,7 @@
     <div class="modal">
       <div class="lightning-icon">⚡</div>
       <h2>Pay with Lightning</h2>
-      <p>Scan the QR code with your Lightning wallet.<br>Powered by SatTope — settles in ARS via WapuPay.</p>
+      <p>Scan the QR code with your Lightning wallet.<br>Powered by SatTope — settles as fiat via WapuPay.</p>
 
       <div class="qr-placeholder" id="qr-box" style="display:flex;align-items:center;justify-content:center;">
         Generating invoice...
@@ -153,11 +153,11 @@
 
   <!-- Footer -->
   <footer>
-    <p>⚡ Powered by <span>SatTope</span> + <span>WapuPay</span> · Lightning payments settle instantly in ARS</p>
+    <p>⚡ Powered by <span>SatTope</span> + <span>WapuPay</span> · Lightning payments settle instantly as fiat</p>
   </footer>
 
   <script>
-    const AMOUNT_SAT = 9000;
+    const AMOUNT_SAT = 7000;
     let bolt11 = '';
     let transactionId = null;
     let rHash = null;
@@ -184,9 +184,9 @@
         keepSat = data.keep_sat || 0;
         const invoiceSource = data.invoice_source || 'wapu';
 
-        const sourceLabel = invoiceSource === 'lnd'
-          ? `⚡ Above threshold — ${keepSat.toLocaleString()} sats to your Lightning node, ${convertSat.toLocaleString()} sats → ARS`
-          : '🇦🇷 Below threshold — converting to ARS via WapuPay';
+        const sourceLabel = (invoiceSource === 'lnd' || invoiceSource === 'phoenixd')
+          ? `⚡ Above threshold — ${keepSat.toLocaleString()} sats to your Phoenix wallet, ${convertSat.toLocaleString()} sats → ARS`
+          : '💱 Below threshold — converting to fiat via WapuPay';
         document.getElementById('waiting-status').innerHTML =
           `<span style="font-size:0.8rem; color:#888;">${sourceLabel}</span>`;
 
@@ -197,7 +197,7 @@
         document.getElementById('qr-box').innerHTML =
           `<div style="background:#fff;padding:16px;border-radius:8px;display:inline-block;"><img src="${qrUrl}" alt="Lightning QR Code" style="width:220px;height:220px;display:block;" /></div>`;
 
-        if (invoiceSource === 'lnd' && rHash) {
+        if ((invoiceSource === 'lnd' || invoiceSource === 'phoenixd') && rHash) {
           startLndPolling(rHash, convertSat, keepSat);
         } else if (invoiceSource === 'wapu' && transactionId) {
           startPolling(transactionId);

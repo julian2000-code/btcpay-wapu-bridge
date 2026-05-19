@@ -9,7 +9,6 @@ Flow:
 5. Dashboard shows conversion history, threshold status, and WapuPay transactions
 """
 
-import base64
 import logging
 import os
 
@@ -20,7 +19,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-from lnd import create_lnd_invoice, get_lnd_balance, get_lnd_invoice, pay_lnd_invoice
+from lnd import get_lnd_balance, pay_lnd_invoice
+from phoenixd import create_phoenixd_invoice, get_phoenixd_balance, get_phoenixd_invoice
 from threshold import get_status, record_conversion, record_kept, should_convert, update_threshold
 from wapu import create_lightning_invoice, get_lightning_address, get_quote, get_transaction, get_transactions
 
@@ -125,13 +125,9 @@ async def dashboard():
     Aggregates data for the SatTope merchant dashboard.
     Returns Lightning balance, WapuPay transactions, threshold status, and payment history.
     """
-    # Lightning node balance
+    # Lightning node balance (phoenixd)
     try:
-        lnd_balance = await get_lnd_balance()
-        lightning_balance = {
-            "local": int(lnd_balance.get("local_balance", {}).get("sat", 0)),
-            "remote": int(lnd_balance.get("remote_balance", {}).get("sat", 0)),
-        }
+        lightning_balance = await get_phoenixd_balance()
     except Exception:
         lightning_balance = {}
 
@@ -153,24 +149,41 @@ async def dashboard():
         if tx_id:
             wapu_tx_lookup[str(tx_id)] = tx
 
-    # ARS payouts enriched with live WapuPay data
+    # ARS payouts enriched with live WapuPay data.
+    # wapu_status is ONLY set from WapuPay's actual API response — never inferred locally.
+    # If WapuPay hasn't confirmed the transaction yet, status stays PENDING.
     ars_payouts = []
     for p in threshold.get("payments", []):
         tx_id = str(p.get("invoice_id", ""))
-        wapu_tx = wapu_tx_lookup.get(tx_id, {})
-        wapu_status = wapu_tx.get("status", "").upper() if wapu_tx else ""
-        is_completed = wapu_status in ("COMPLETED", "DONE", "PAID", "SUCCESS")
+        payment_type = p.get("type", "converted")
 
-        live_ars = float(wapu_tx.get("payment_amount") or 0) if wapu_tx else 0
-        ars_amount = live_ars if live_ars > 0 else float(p.get("ars_amount") or 0)
+        # kept_in_lightning payments don't go through WapuPay — mark them directly
+        if payment_type == "kept_in_lightning":
+            ars_payouts.append({
+                "date": p.get("date", ""),
+                "invoice_id": tx_id,
+                "amount_sat": p.get("amount_sat", 0),
+                "ars_amount": 0,
+                "type": payment_type,
+                "wapu_status": "KEPT"
+            })
+            continue
+
+        # For converted payments, only trust WapuPay's live status
+        wapu_tx = wapu_tx_lookup.get(tx_id, {})
+        wapu_status = wapu_tx.get("status", "").upper() if wapu_tx else "PENDING"
+        is_completed = wapu_status in ("COMPLETED", "DONE", "PAID", "SUCCESS")
+        ars_amount = float(wapu_tx.get("payment_amount") or 0) if is_completed else 0
+
+        logger.info(f"ARS payout {tx_id[:16]}: wapu_found={bool(wapu_tx)}, wapu_status={wapu_status}, ars={ars_amount}")
 
         ars_payouts.append({
             "date": p.get("date", ""),
             "invoice_id": tx_id,
             "amount_sat": p.get("amount_sat", 0),
-            "ars_amount": ars_amount if is_completed or ars_amount > 0 else 0,
-            "type": p.get("type", "converted"),
-            "wapu_status": wapu_status or ("COMPLETED" if ars_amount > 0 else "PENDING")
+            "ars_amount": ars_amount,
+            "type": payment_type,
+            "wapu_status": wapu_status
         })
 
     # Lightning payments list (all threshold-tracked payments)
@@ -217,33 +230,29 @@ async def create_payment(payment: PaymentRequest):
         quote = {}
 
     if use_lnd:
-        # Above tope — LND generates the invoice, sats land in Lightning
+        # Above tope — phoenixd generates the invoice, sats land in merchant's wallet
         try:
-            invoice = await create_lnd_invoice(payment.amount_sat, payment.description)
-            logger.info(f"LND invoice created: {invoice}")
-            bolt11 = invoice.get("payment_request")
-            r_hash = invoice.get("r_hash", "")
-            try:
-                r_hash_hex = base64.b64decode(r_hash).hex()
-            except Exception:
-                r_hash_hex = r_hash
+            invoice = await create_phoenixd_invoice(int(payment.amount_sat), payment.description)
+            logger.info(f"phoenixd invoice created: {invoice}")
+            bolt11 = invoice.get("serialized")
+            payment_hash = invoice.get("paymentHash", "")
             return {
                 "bolt11": bolt11,
                 "amount_sat": payment.amount_sat,
-                "invoice_source": "lnd",
-                "r_hash": r_hash_hex,
+                "invoice_source": "phoenixd",
+                "r_hash": payment_hash,
                 "convert_sat": convert_sat,
                 "keep_sat": keep_sat,
                 "ars_quote": quote,
                 "threshold_info": {
                     "will_convert_sat": convert_sat,
                     "will_keep_sat": keep_sat,
-                    "message": f"LND receives payment. Converting {convert_sat} sats to ARS, keeping {keep_sat} sats in Lightning."
+                    "message": f"phoenixd receives payment. Converting {convert_sat} sats to ARS, keeping {keep_sat} sats in Lightning."
                 }
             }
         except Exception as e:
-            logger.error(f"Failed to create LND invoice: {e}")
-            raise HTTPException(status_code=502, detail=f"LND error: {str(e)}")
+            logger.error(f"Failed to create phoenixd invoice: {e}")
+            raise HTTPException(status_code=502, detail=f"phoenixd error: {str(e)}")
     else:
         # Below tope — WapuPay generates the invoice → auto-converts to ARS
         try:
@@ -332,12 +341,12 @@ async def reset_demo():
 @app.get("/check-lnd-payment/{r_hash}")
 async def check_lnd_payment(r_hash: str, convert_sat: float = 0, keep_sat: float = 0):
     """
-    Poll LND for invoice settlement.
+    Poll phoenixd for invoice settlement.
     When paid, records the split and triggers ARS conversion for the convert_sat portion.
     """
     try:
-        invoice = await get_lnd_invoice(r_hash)
-        settled = invoice.get("settled", False)
+        invoice = await get_phoenixd_invoice(r_hash)
+        settled = invoice.get("isPaid", False)
 
         if settled and convert_sat > 0:
             try:
